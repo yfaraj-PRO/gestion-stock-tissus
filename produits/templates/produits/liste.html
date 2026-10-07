@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Stock de tissus</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;800&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --indigo: #1e2a5e;
+            --craie: #f2f4f8;
+            --fil: #ffffff;
+            --safran: #e8a317;
+            --garance: #b3263a;
+            --texte: #1c2033;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; background: var(--craie); color: var(--texte);
+            font-family: "Source Sans 3", Arial, sans-serif; line-height: 1.5;
+        }
+        h1, h2 { font-family: "Bricolage Grotesque", Arial, sans-serif; margin: 0; }
+
+        /* En-tête : texte à gauche, tissu 3D à droite */
+        .entete {
+            display: grid; grid-template-columns: minmax(280px, 2fr) 3fr;
+            background: var(--indigo); color: var(--fil); min-height: 420px;
+        }
+        .entete-texte { padding: 32px 36px; display: flex; flex-direction: column; justify-content: space-between; gap: 24px; }
+        .entete h1 { font-size: clamp(2.2rem, 5vw, 3.6rem); font-weight: 800; line-height: 1.05; }
+        .entete p { margin: 8px 0 0; opacity: .8; max-width: 38ch; }
+        .scene { position: relative; min-height: 260px; }
+        .scene canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+        .recherche { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+        .recherche input[type=text] {
+            flex: 1; min-width: 180px; padding: 10px 12px; border: 0; border-radius: 6px; font-size: 1rem;
+        }
+        button {
+            font: inherit; cursor: pointer; border: 0; border-radius: 6px;
+            padding: 9px 14px; background: var(--safran); color: var(--indigo); font-weight: 600;
+        }
+        .recherche a { color: var(--fil); }
+        .deconnexion { align-self: flex-start; }
+        .deconnexion button { background: transparent; color: var(--fil); border: 1px solid rgba(255,255,255,.5); }
+
+        /* Liste des tissus */
+        .liste {
+            display: grid; grid-template-columns: repeat(auto-fill, minmax(270px, 1fr));
+            gap: 22px; padding: 32px 36px 60px;
+        }
+        .rouleau { background: var(--fil); border-radius: 4px 4px 14px 4px; overflow: hidden; box-shadow: 0 1px 0 rgba(30,42,94,.15); }
+        .rouleau:focus-within, .rouleau:hover { outline: 2px solid var(--indigo); }
+        .echantillon { position: relative; height: 120px; border-bottom: 1px solid rgba(0,0,0,.12); }
+        .echantillon::after {
+            content: ""; position: absolute; inset: 0;
+            background:
+                repeating-linear-gradient(0deg, rgba(0,0,0,.07) 0 1px, transparent 1px 4px),
+                repeating-linear-gradient(90deg, rgba(255,255,255,.10) 0 1px, transparent 1px 4px);
+        }
+        .corps { padding: 16px 18px 18px; }
+        .corps h2 { font-size: 1.3rem; }
+        .detail { margin: 2px 0 10px; color: #5b6180; }
+        .prix { margin: 0; font-weight: 600; }
+        .stock { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 14px; }
+        .stock strong { font-family: "Bricolage Grotesque", Arial, sans-serif; font-size: 1.9rem; }
+        .alerte { background: var(--garance); color: var(--fil); padding: 2px 8px; border-radius: 4px; font-size: .9rem; font-weight: 600; }
+        .bas .stock strong { color: var(--garance); }
+        .bas .echantillon { border-bottom: 4px solid var(--garance); }
+        .modif { display: flex; gap: 6px; }
+        .modif input { width: 72px; padding: 8px; border: 1px solid #c5cadb; border-radius: 6px; font: inherit; }
+        .modif button { padding: 8px 10px; }
+        .modif button[value=retirer] { background: var(--indigo); color: var(--fil); }
+        .vide { padding: 40px 36px; }
+
+        :focus-visible { outline: 3px solid var(--safran); outline-offset: 2px; }
+        @media (max-width: 760px) {
+            .entete { grid-template-columns: 1fr; }
+            .scene { min-height: 300px; }
+            .liste { padding: 24px 18px 50px; }
+        }
+    </style>
+</head>
+<body>
+    <header class="entete">
+        <div class="entete-texte">
+            <form method="post" action="{% url 'logout' %}" class="deconnexion">
+                {% csrf_token %}
+                <button type="submit">Se déconnecter</button>
+            </form>
+            <div>
+                <h1>Stock de tissus</h1>
+                <p>{{ tissus|length }} référence{{ tissus|length|pluralize }} en rayon. Passe la souris sur un tissu pour voir le tissu et le caftan changer de couleur.</p>
+            </div>
+            <form method="get" class="recherche">
+                <input type="text" name="q" value="{{ recherche }}" placeholder="Nom, couleur ou référence">
+                <button type="submit">Rechercher</button>
+                {% if recherche %}<a href="{% url 'liste_tissus' %}">Effacer</a>{% endif %}
+            </form>
+        </div>
+        <div class="scene"><canvas id="tissu3d" aria-hidden="true"></canvas></div>
+    </header>
+
+    <main class="liste">
+        {% for tissu in tissus %}
+        <article class="rouleau {% if tissu.stock_bas %}bas{% endif %}" data-couleur="{{ tissu.couleur_css }}">
+            <div class="echantillon" style="background-color: {{ tissu.couleur_css }};"></div>
+            <div class="corps">
+                <h2>{{ tissu.nom }}</h2>
+                <p class="detail">{{ tissu.type_tissu|default:"Sans type" }}, {{ tissu.couleur }}, {{ tissu.largeur_cm }} cm de large{% if tissu.reference %}. Réf. {{ tissu.reference }}{% endif %}</p>
+                <p class="prix">{{ tissu.prix_metre }} DH le mètre</p>
+                <p class="stock">
+                    <strong>{{ tissu.metrage_stock }} m</strong>
+                    {% if tissu.stock_bas %}<span class="alerte">Stock bas</span>{% endif %}
+                </p>
+                <form method="post" action="{% url 'modifier_stock' tissu.id %}" class="modif">
+                    {% csrf_token %}
+                    <input type="number" name="quantite" step="0.01" min="0" value="1" aria-label="Mètres">
+                    <button type="submit" name="action" value="ajouter">Ajouter</button>
+                    <button type="submit" name="action" value="retirer">Retirer</button>
+                </form>
+            </div>
+        </article>
+        {% empty %}
+        <p class="vide">Aucun tissu trouvé. Essaie un autre mot ou efface la recherche.</p>
+        {% endfor %}
+    </main>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+        <script>
+        const canvas = document.getElementById("tissu3d");
+        const zone = canvas.parentElement;
+        const reduire = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 100);
+        camera.position.set(0, 0, 6.5);
+        const renderer = new THREE.WebGLRenderer({ canvas: canvas, antialias: true, alpha: true });
+        renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+        scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+        const soleil = new THREE.DirectionalLight(0xffffff, 0.9);
+        soleil.position.set(-3, 4, 5);
+        scene.add(soleil);
+
+        // Matières : le tissu et le caftan partagent la même, donc changent de couleur ensemble
+        const matiere = new THREE.MeshStandardMaterial({ color: 0xb3263a, side: THREE.DoubleSide, roughness: 0.9 });
+        const dorure = new THREE.MeshStandardMaterial({ color: 0xe8a317, side: THREE.DoubleSide, roughness: 0.4, metalness: 0.3 });
+        const buste = new THREE.MeshStandardMaterial({ color: 0xd9cdb8, roughness: 0.8 });
+
+        // Tissu qui ondule
+        const geo = new THREE.PlaneGeometry(7, 4.2, 70, 42);
+        const tissu = new THREE.Mesh(geo, matiere);
+        tissu.rotation.set(-0.55, 0.3, 0.12);
+        scene.add(tissu);
+
+        // Mannequin en caftan
+        const mannequin = new THREE.Group();
+        const profil = [
+            [1.15, -1.9], [1.1, -1.5], [1.0, -0.9], [0.88, -0.3], [0.78, 0.2],
+            [0.72, 0.7], [0.7, 1.1], [0.62, 1.38], [0.42, 1.54], [0.2, 1.62]
+        ].map(function (p) { return new THREE.Vector2(p[0], p[1]); });
+        const profilLarge = profil.map(function (p) { return new THREE.Vector2(p.x * 1.015, p.y); });
+
+        // Robe, puis bande dorée sur le devant
+        mannequin.add(new THREE.Mesh(new THREE.LatheGeometry(profil, 48), matiere));
+        mannequin.add(new THREE.Mesh(new THREE.LatheGeometry(profilLarge, 6, -0.07, 0.14), dorure));
+
+        // Finitions : bas de la robe et encolure
+        const bas = new THREE.Mesh(new THREE.TorusGeometry(1.15, 0.04, 8, 64), dorure);
+        bas.position.y = -1.9;
+        bas.rotation.x = Math.PI / 2;
+        mannequin.add(bas);
+        const encolure = new THREE.Mesh(new THREE.TorusGeometry(0.2, 0.025, 8, 32), dorure);
+        encolure.position.y = 1.62;
+        encolure.rotation.x = Math.PI / 2;
+        mannequin.add(encolure);
+
+        // Cou, tête et socle
+        const cou = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.18, 0.4, 24), buste);
+        cou.position.y = 1.78;
+        mannequin.add(cou);
+        const tete = new THREE.Mesh(new THREE.SphereGeometry(0.2, 32, 24), buste);
+        tete.scale.y = 1.25;
+        tete.position.y = 2.13;
+        mannequin.add(tete);
+        const socle = new THREE.Mesh(new THREE.CylinderGeometry(1.3, 1.35, 0.07, 48), buste);
+        socle.position.y = -1.95;
+        mannequin.add(socle);
+
+        // Manches larges avec poignets dorés
+        function manche(cote) {
+            const g = new THREE.Group();
+            g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.42, 1.3, 32, 1, true), matiere));
+            const poignet = new THREE.Mesh(new THREE.TorusGeometry(0.42, 0.03, 8, 40), dorure);
+            poignet.position.y = -0.65;
+            poignet.rotation.x = Math.PI / 2;
+            g.add(poignet);
+            g.position.set(cote * 0.93, 0.88, 0);
+            g.rotation.z = cote * 0.5;
+            return g;
+        }
+        mannequin.add(manche(1));
+        mannequin.add(manche(-1));
+        scene.add(mannequin);
+
+        const base = geo.attributes.position.array.slice();
+        let cible = new THREE.Color(0xb3263a);
+
+        // Place le tissu à gauche et le mannequin à droite, selon la largeur de l'écran
+        function placer() {
+            const demi = Math.tan(THREE.MathUtils.degToRad(20)) * 6.5 * camera.aspect;
+            const st = Math.min(0.9, demi * 0.95 / 7);
+            tissu.scale.set(st, st, st);
+            tissu.position.x = -demi * 0.5;
+            const sm = Math.min(0.95, demi * 0.9 / 3.6);
+            mannequin.scale.set(sm, sm, sm);
+            mannequin.position.set(demi * 0.5, -0.2 * sm, 0);
+        }
+
+        function redimensionner() {
+            const w = zone.clientWidth, h = zone.clientHeight;
+            renderer.setSize(w, h, false);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+            placer();
+        }
+
+        function onduler(t) {
+            const pos = geo.attributes.position;
+            for (let i = 0; i < pos.count; i++) {
+                const x = base[i * 3], y = base[i * 3 + 1];
+                pos.setZ(i, Math.sin(x * 0.9 + t * 1.4) * 0.35 + Math.sin(y * 1.6 + t * 1.1) * 0.18);
+            }
+            pos.needsUpdate = true;
+            geo.computeVertexNormals();
+        }
+
+        function boucle(ms) {
+            const t = ms / 1000;
+            matiere.color.lerp(cible, 0.08);
+            onduler(t);
+            mannequin.rotation.y = Math.sin(t * 0.6) * 0.5;
+            renderer.render(scene, camera);
+            requestAnimationFrame(boucle);
+        }
+
+        window.addEventListener("resize", function () { redimensionner(); if (reduire) renderer.render(scene, camera); });
+        redimensionner();
+        if (reduire) { onduler(0); renderer.render(scene, camera); } else { requestAnimationFrame(boucle); }
+
+        function changerCouleur(c) {
+            cible = new THREE.Color(c);
+            if (reduire) { matiere.color.copy(cible); renderer.render(scene, camera); }
+        }
+        document.querySelectorAll(".rouleau").forEach(function (carte) {
+            carte.addEventListener("mouseenter", function () { changerCouleur(carte.dataset.couleur); });
+            carte.addEventListener("focusin", function () { changerCouleur(carte.dataset.couleur); });
+        });
+        const premiere = document.querySelector(".rouleau");
+        if (premiere) { changerCouleur(premiere.dataset.couleur); }
+    </script>
+</body>
+</html>
